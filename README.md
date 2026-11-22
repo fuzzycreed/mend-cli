@@ -10,3 +10,11 @@ tiers above strict exact matching, and atomic all-or-nothing changes per file.
 
 Verified: 100/100 on the kit's practice checks, plus 174 hand-written extra
 checks for spec corners the practice set does not cover.
+
+## make.fun entry
+
+[![Competition](https://make.fun/badge/hidden-spec-cli-01-run-20261122.svg)](https://make.fun/bounty/hidden-spec-cli-01-run-20261122)
+![Rank](https://make.fun/badge/hidden-spec-cli-01-run-20261122/fuzzycreed/mend-cli/rank.svg)
+![Reward](https://make.fun/badge/hidden-spec-cli-01-run-20261122/fuzzycreed/mend-cli/reward.svg)
+
+Bounty: [mend — hidden-spec-cli-01](https://make.fun/bounty/hidden-spec-cli-01-run-20261122) on make.fun.
