@@ -110,6 +110,29 @@ class Tree {
     return this.read(path) !== null;
   }
 
+  /**
+   * What stands in the way of a new file at `path`, or null: a file at one of its parent paths (the nearest to the
+   * root first), a file at the path itself, or a directory there (on disk, or made by a file this patch created
+   * below it). The path returned is the one that exists, for the `exists` line.
+   */
+  blocker(path: string): string | null {
+    const segs = path.split('/');
+    for (let n = 1; n < segs.length; n += 1) {
+      const parent = segs.slice(0, n).join('/');
+      if (this.read(parent) !== null) return parent;
+    }
+    if (this.read(path) !== null) return path;
+    try {
+      if (statSync(path).isDirectory()) return path;
+    } catch {
+      // nothing there
+    }
+    for (const [other, text] of this.now) {
+      if (text !== null && other.startsWith(`${path}/`)) return path;
+    }
+    return null;
+  }
+
   put(path: string, text: string): void {
     this.original(path);
     this.now.set(path, text);
@@ -161,6 +184,12 @@ class Tree {
 
 function needSafe(path: string): void {
   if (!isSafe(path)) throw new EditFault('unsafe', path);
+}
+
+/** A file is about to be created at, or moved to, `path`: nothing may be in its way. */
+function needFree(tree: Tree, path: string): void {
+  const inTheWay = tree.blocker(path);
+  if (inTheWay !== null) throw new EditFault('exists', inTheWay);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -360,8 +389,9 @@ function readUnified(lines: string[]): Edit[] {
       continue;
     }
     if (inHeader && cur !== null) {
-      if (line.startsWith('rename from ')) cur.renameFrom = line.slice('rename from '.length).trim();
-      else if (line.startsWith('rename to ')) cur.renameTo = line.slice('rename to '.length).trim();
+      // The SPEC names no trimming and no prefix removal for these two: the path is the rest of the line.
+      if (line.startsWith('rename from ')) cur.renameFrom = line.slice('rename from '.length);
+      else if (line.startsWith('rename to ')) cur.renameTo = line.slice('rename to '.length);
       else if (line.startsWith('new file mode')) cur.creation = true;
       else if (line.startsWith('deleted file mode')) cur.deletion = true;
     }
@@ -388,7 +418,7 @@ function unifiedEdit(sec: Section): Edit {
     if (creation) {
       const path = newPath ?? oldPath ?? sec.gitNew ?? '/dev/null';
       needSafe(path);
-      if (tree.has(path)) throw new EditFault('exists', path);
+      needFree(tree, path);
       const added: Row[] = [];
       for (const h of sec.hunks) for (const r of h.rows) if (r.kind === '+') added.push(r);
       let text = added.map((r) => r.text).join('\n');
@@ -409,7 +439,7 @@ function unifiedEdit(sec: Section): Edit {
     if (moving) needSafe(to);
     const text = tree.read(from);
     if (text === null) throw new EditFault('missing', from);
-    if (moving && tree.has(to)) throw new EditFault('exists', to);
+    if (moving) needFree(tree, to);
     const doc = parseDoc(text);
     let drift = 0;
     for (const h of sec.hunks) {
@@ -501,7 +531,7 @@ function blockEdit(path: string, old: string[], fresh: string[]): Edit {
   return (tree, opt) => {
     needSafe(path);
     if (old.length === 0) {
-      if (tree.has(path)) throw new EditFault('exists', path);
+      needFree(tree, path);
       tree.put(path, fresh.map((l) => `${l}\n`).join(''));
       return;
     }
@@ -589,7 +619,7 @@ function readV4a(lines: string[]): Edit[] {
           const anchor = trimSpaces(l.slice(2));
           open = { anchor: anchor === '' ? null : anchor, rows: [], atEnd: false };
           chunks.push(open);
-        } else if (l.trimEnd() === '*** End of File') {
+        } else if (l === '*** End of File') {
           if (open === null) throw new ParseFault(k + 1);
           open.atEnd = true;
           open = null;
@@ -616,7 +646,7 @@ function readV4a(lines: string[]): Edit[] {
 function addEdit(path: string, content: string[]): Edit {
   return (tree) => {
     needSafe(path);
-    if (tree.has(path)) throw new EditFault('exists', path);
+    needFree(tree, path);
     tree.put(path, content.map((l) => `${l}\n`).join(''));
   };
 }
@@ -635,7 +665,7 @@ function updateEdit(path: string, moveTo: string | null, chunks: Chunk[]): Edit 
     if (moveTo !== null) needSafe(moveTo);
     const text = tree.read(path);
     if (text === null) throw new EditFault('missing', path);
-    if (moveTo !== null && tree.has(moveTo)) throw new EditFault('exists', moveTo);
+    if (moveTo !== null) needFree(tree, moveTo);
     const doc = parseDoc(text);
     let cursor = 0;
     for (const chunk of chunks) {
@@ -686,7 +716,7 @@ function jsonEdit(value: unknown): Edit | null {
     if (typeof body !== 'string') return null;
     return (tree) => {
       needSafe(path);
-      if (tree.has(path)) throw new EditFault('exists', path);
+      needFree(tree, path);
       tree.put(path, body);
     };
   }
